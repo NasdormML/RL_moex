@@ -1,5 +1,3 @@
-import os
-import sys
 from datetime import datetime
 
 import numpy as np
@@ -8,8 +6,6 @@ from stable_baselines3 import PPO
 
 from moex_rl_agent.data_loader import load_daily_multi
 from moex_rl_agent.env import MultiTickerEnv
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
 
 def backtest(symbols, board, start, end, window, model_path):

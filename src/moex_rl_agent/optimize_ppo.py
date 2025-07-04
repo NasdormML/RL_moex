@@ -35,7 +35,6 @@ def objective(trial):
         verbose=0,
     )
     model.learn(total_timesteps=TIMESTEPS, log_interval=0)
-    # быстрый бэктест на том же периоде
     obs = env.reset()
     rewards = []
     for _ in range(len(df) - WINDOW):

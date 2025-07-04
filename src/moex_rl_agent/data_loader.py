@@ -4,20 +4,32 @@ import pandas as pd
 import requests
 
 
+def add_bollinger_bands(df, window=20, num_std=2):
+    df["SMA"] = df["close"].rolling(window=window).mean()
+    df["std"] = df["close"].rolling(window=window).std()
+    df["bollinger_upper"] = df["SMA"] + num_std * df["std"]
+    df["bollinger_lower"] = df["SMA"] - num_std * df["std"]
+    return df
+
+
+def calculate_macd(df, fast=12, slow=26, signal=9):
+    exp1 = df["close"].ewm(span=fast, adjust=False).mean()
+    exp2 = df["close"].ewm(span=slow, adjust=False).mean()
+    macd_line = exp1 - exp2
+    signal_line = macd_line.ewm(span=signal, adjust=False).mean()
+    df["macd"] = macd_line
+    df["macd_signal"] = signal_line
+    return df
+
+
 def load_daily_multi(
     symbols: list[str], board: str, start: datetime, end: datetime
 ) -> pd.DataFrame:
-    """
-    Загрузить дневные свечи для списка тикеров и добавить индикаторы:
-    SMA20, RSI14, MOM5.
-    Возвращает DataFrame с колонками
-    ['date','ticker','open','high','low','close','volume','SMA20','RSI14','MOM5'].
-    """
     dfs = []
     for symbol in symbols:
         url = (
-            f"https://iss.moex.com/iss/history/engines/stock/markets/shares/"
-            f"boards/{board}/securities/{symbol}.json"
+            "https://iss.moex.com/iss/history/engines/stock/markets/"
+            + f"shares/boards/{board}/securities/{symbol}.json"
         )
         params = {"from": start.strftime("%Y-%m-%d"), "till": end.strftime("%Y-%m-%d")}
         r = requests.get(url, params=params)
@@ -38,15 +50,18 @@ def load_daily_multi(
         df = df[["date", "open", "high", "low", "close", "volume"]]
         df["ticker"] = symbol
 
-        # индикаторы
+        # Add technical indicators
         df["SMA20"] = df["close"].rolling(20, min_periods=1).mean()
-        delta = df["close"].diff()
-        up, down = delta.clip(lower=0), -delta.clip(upper=0)
-        roll_up = up.ewm(span=14, adjust=False).mean()
-        roll_down = down.ewm(span=14, adjust=False).mean()
-        rs = roll_up / (roll_down + 1e-9)
-        df["RSI14"] = 100 - 100 / (1 + rs)
+        df["RSI14"] = (
+            df["close"]
+            .diff()
+            .apply(lambda x: max(x, 0) if x > 0 else 0)
+            .rolling(14)
+            .mean()
+        )
         df["MOM5"] = df["close"].diff(5)
+        df = add_bollinger_bands(df)
+        df = calculate_macd(df)
 
         dfs.append(df.dropna().reset_index(drop=True))
 

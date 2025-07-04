@@ -13,7 +13,7 @@ def main(symbols, board, start, end, window, timesteps, out):
     model = PPO("MlpPolicy", env, verbose=1)
     model.learn(total_timesteps=timesteps)
     model.save(out)
-    print(f"Multi‑ticker PPO saved to {out}.zip")
+    print(f"Multi-ticker PPO saved to {out}.zip")
 
 
 if __name__ == "__main__":
@@ -24,7 +24,7 @@ if __name__ == "__main__":
         "--start", type=lambda s: datetime.fromisoformat(s), default="2020-01-01"
     )
     p.add_argument(
-        "--end", type=lambda s: datetime.fromisoformat(s), default="2025-06-01"
+        "--end", type=lambda s: datetime.fromisoformat(s), default="2024-12-31"
     )
     p.add_argument("--window", type=int, default=20)
     p.add_argument("--timesteps", type=int, default=200000)
