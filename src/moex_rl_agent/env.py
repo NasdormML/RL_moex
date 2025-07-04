@@ -5,21 +5,17 @@ from sklearn.preprocessing import StandardScaler
 
 
 class UnifiedBuffer:
-    """Buffer to store the state of the environment for efficient access."""
-
     def __init__(self, n_tickers, window_size):
         self.buffer = []
         self.n_tickers = n_tickers
         self.window_size = window_size
 
     def update(self, state):
-        """Update the buffer with the new state."""
         self.buffer.append(state)
         if len(self.buffer) > self.window_size:
             self.buffer.pop(0)
 
     def get(self):
-        """Get the last N states."""
         return np.array(self.buffer)
 
 
@@ -50,7 +46,6 @@ class MultiTickerEnv(gym.Env):
         self.dates = pivot.index.to_list()
         prices = pivot[self.symbols].values  # shape (T, n_sym)
 
-        # Normalize prices for each ticker
         norm_prices = np.zeros_like(prices)
         self.scalers = {}
         for i, sym in enumerate(self.symbols):
@@ -71,7 +66,6 @@ class MultiTickerEnv(gym.Env):
             low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32
         )
 
-        # Initialize buffer
         self.buffer = UnifiedBuffer(self.n_sym, self.window)
 
         self._reset_internal()
