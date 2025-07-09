@@ -41,7 +41,6 @@ class MultiTickerEnv(gym.Env):
         self.slip = slippage
         self.dd_penalty = dd_penalty
 
-        # Matrix of prices
         pivot = df.pivot(index="date", columns="ticker", values="close")
         self.dates = pivot.index.to_list()
         prices = pivot[self.symbols].values  # shape (T, n_sym)
@@ -55,12 +54,10 @@ class MultiTickerEnv(gym.Env):
         self.norm_prices = norm_prices
         self.prices = prices
 
-        # Action: continuous vector in [0,1]^n_sym
         self.action_space = spaces.Box(
             low=0.0, high=1.0, shape=(self.n_sym,), dtype=np.float32
         )
 
-        # Observation: window × n_sym norm_prices + cash_ratio + weights
         obs_dim = self.window * self.n_sym + 1 + self.n_sym
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32
@@ -97,11 +94,9 @@ class MultiTickerEnv(gym.Env):
         curr_vals = self.shares * prices
         deltas = target_vals - curr_vals
 
-        # Transaction costs
         comm_cost = np.abs(deltas) * self.comm
         slip_cost = np.abs(deltas) * self.slip
 
-        # Execute BUY and SELL logic
         buy = deltas > 0
         cost = deltas[buy] + comm_cost[buy] + slip_cost[buy]
         if self.cash >= cost.sum():
@@ -126,7 +121,7 @@ class MultiTickerEnv(gym.Env):
         pnl = (self.port_hist[-1] - self.port_hist[-2]) / (self.port_hist[-2] + 1e-9)
         reward = pnl - self.dd_penalty * drawdown
 
-        self.buffer.update(self._get_obs())  # Update buffer with the latest observation
+        self.buffer.update(self._get_obs())
 
         obs = (
             self._get_obs()

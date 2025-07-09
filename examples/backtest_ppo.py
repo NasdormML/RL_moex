@@ -8,6 +8,12 @@ from moex_rl_agent.data_loader import load_daily_multi
 from moex_rl_agent.env import MultiTickerEnv
 
 
+def calculate_sharpe_ratio(returns):
+    mean_returns = np.mean(returns)
+    std_dev = np.std(returns)
+    return mean_returns / (std_dev + 1e-9)
+
+
 def backtest(symbols, board, start, end, window, model_path):
     df = load_daily_multi(symbols, board, start, end)
     env = MultiTickerEnv(df, window=window)
@@ -30,13 +36,17 @@ def backtest(symbols, board, start, end, window, model_path):
         )
 
     res = pd.DataFrame(hist)
-    total = res["portfolio_value"].iloc[-1] / res["portfolio_value"].iloc[0] - 1
+    total_return = res["portfolio_value"].iloc[-1] / res["portfolio_value"].iloc[0] - 1
     rets = res["portfolio_value"].pct_change().fillna(0)
-    sharpe = rets.mean() / (rets.std() + 1e-9) * np.sqrt(252)
+    sharpe = calculate_sharpe_ratio(rets) * np.sqrt(252)
     maxdd = (1 - res["portfolio_value"] / res["portfolio_value"].cummax()).max()
 
-    print(f"\nMulti backtest {symbols} {start.date()}–{end.date()}")
-    print(f"Return: {total*100:.2f}%, Sharpe: {sharpe:.2f}, MaxDD: {maxdd*100:.2f}%")
+    print(f"Multi backtest {symbols} {start.date()}–{end.date()}")
+    print(
+        f"Return: {total_return * 100:.2f}%, "
+        f"Sharpe: {sharpe:.2f}, "
+        f"MaxDD: {maxdd * 100:.2f}%"
+    )
 
     out_csv = f"bt_multi_{'_'.join(symbols).lower()}.csv"
     res.to_csv(out_csv, index=False)
