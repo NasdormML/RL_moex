@@ -12,7 +12,7 @@ feature_cols:
   - boll_lower20
   - macd
   - macd_signal
-  - rsi
+  - rsi14
   - volume
 
 total_timesteps: 500000
