@@ -85,7 +85,7 @@ def run_backtest(
     verify_observation_space(model, env, len(symbols))
     
     print("\nRunning backtest...")
-    obs = env.reset()
+    obs, _ = env.reset()
     done = False
     
     # Для сбора статистики
@@ -97,7 +97,11 @@ def run_backtest(
     while not done:
         action, _ = model.predict(obs, deterministic=True)
         
-        obs, reward, done, info = env.step(action)
+        if not np.all(np.isfinite(action)):
+            print("❌ Invalid action detected (NaN/Inf), using zeros")
+            action = np.zeros_like(action)
+        
+        obs, reward, done, truncated, info = env.step(action)
         
         # Сохранение истории
         portfolio_values.append(info["portfolio_value"])
@@ -125,7 +129,7 @@ def print_metrics(metrics: Dict[str, float]):
     print("FINAL METRICS")
     print("="*50)
     print(f"Total Return:  {metrics['total_return']*100:>8.2f}%")
-    print(f"Final Value:   {metrics['final_value']:>8,.0f}")
+    print(f"Final Value:   {metrics['final_value']:>8,.0f}₽")
     print(f"Sharpe Ratio:  {metrics['sharpe_ratio']:>8.2f}")
     print(f"Max Drawdown:  {metrics['max_drawdown']*100:>8.2f}%")
     print(f"Calmar Ratio:  {metrics['calmar_ratio']:>8.2f}")
@@ -204,5 +208,7 @@ if __name__ == "__main__":
     
     print_metrics(results["metrics"])
     
-    if args.save_plot or True:
+    if args.save_plot:
         plot_results(results, args.save_plot)
+    else:
+        plot_results(results)

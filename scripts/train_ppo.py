@@ -113,7 +113,7 @@ def main():
     val_start = datetime.fromisoformat(config.get("val_start", "2024-01-01"))
     val_end = datetime.fromisoformat(config.get("val_end", "2025-01-01"))
     window = config.get("window", 20)
-    feature_cols = config.get("feature_cols", ["sma20", "rsi"])
+    feature_cols = config.get("feature_cols", ["sma20", "rsi14"])
     total_timesteps = config.get("total_timesteps", 200_000)
     seed = config.get("seed", 42)
     model_path = config.get("model_path", "models/ppo_moex")
