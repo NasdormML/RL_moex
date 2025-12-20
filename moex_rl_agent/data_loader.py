@@ -34,7 +34,7 @@ def create_session() -> requests.Session:
 def get_cache_path(ticker: str, board: str, start: datetime, end: datetime) -> Path:
     """Генерация пути к кэш-файлу для тикера"""
     key = f"{ticker}_{board}_{start.strftime('%Y%m%d')}_{end.strftime('%Y%m%d')}"
-    hash_key = hashlib.md5(key.encode()).hexdigest()
+    hash_key = hashlib.md5(key.encode('utf-8')).hexdigest()
     return CACHE_DIR / f"{ticker}_{hash_key[:8]}.pkl"
 
 
@@ -53,7 +53,6 @@ def fetch_paginated(
     print(f"   Fetching {key} data...")
     
     while True:
-        # Копируем параметры и добавляем пагинацию
         current_params = params.copy()
         current_params.update({
             "start": start_param,
@@ -67,7 +66,6 @@ def fetch_paginated(
             response.raise_for_status()
             data = response.json()
             
-            # Извлекаем данные
             container = data.get(key, {})
             rows = container.get("data", [])
             
@@ -90,6 +88,9 @@ def fetch_paginated(
         except requests.exceptions.RequestException as e:
             print(f"   ⚠️  Network error: {e}, retrying...")
             time.sleep(pause * 2)
+            if start_param > 10000:
+                print("   ❌ Too many retries, aborting")
+                break
             continue
     
     if not columns:
@@ -107,8 +108,7 @@ def load_daily_ticker(
     start: datetime,
     end: datetime,
     use_cache: bool = True,
-    fill_nan: bool = True
-) -> pd.DataFrame:
+) -> pd.DataFrame:  # УДАЛЕН НЕИСПОЛЬЗУЕМЫЙ ПАРАМЕТР fill_nan
     cache_path = get_cache_path(ticker, board, start, end)
     
     # Попытка загрузки из кэша
@@ -120,9 +120,9 @@ def load_daily_ticker(
         except Exception as e:
             print(f"   ⚠️  Cache load failed: {e}, reloading from API")
     
-    # Определяем путь в зависимости от типа инструмента
+    # ИСПРАВЛЕН: ДОБАВЛЕН /history/ ДЛЯ ФЬЮЧЕРСОВ
     if board == "RFUD":
-        url = f"{MOEX_BASE}/engines/futures/markets/forts/boards/{board}/securities/{ticker}.json"
+        url = f"{MOEX_BASE}/history/engines/futures/markets/forts/boards/{board}/securities/{ticker}.json"
     else:  # Акции и другие
         url = f"{MOEX_BASE}/history/engines/stock/markets/shares/boards/{board}/securities/{ticker}.json"
     
@@ -136,25 +136,27 @@ def load_daily_ticker(
     
     if df.empty:
         print(f"   ⚠️  No data received for {ticker}")
-        # Возвращаем пустой DataFrame с правильными колонками
-        return pd.DataFrame(columns=['ticker', 'date', 'open', 'high', 'low', 'close', 'volume'])
+        return pd.DataFrame(columns=['date', 'open', 'high', 'low', 'close', 'volume', 'ticker'])
     
     # === ОБРАБОТКА ДАННЫХ ===
     
     # Нормализация колонок
     if "tradedate" in df.columns:
         df["date"] = pd.to_datetime(df["tradedate"]).dt.date
+        df.drop(columns=["tradedate"], inplace=True)
     elif "trade_date" in df.columns:
         df["date"] = pd.to_datetime(df["trade_date"]).dt.date
+        df.drop(columns=["trade_date"], inplace=True)
     else:
         # Ищем колонку с датой
         date_col = None
         for col in df.columns:
-            if "date" in col.lower():
+            if "date" in col.lower() and col != "date":
                 date_col = col
                 break
         if date_col:
             df["date"] = pd.to_datetime(df[date_col]).dt.date
+            df.drop(columns=[date_col], inplace=True)
         else:
             raise ValueError(f"❌ No date column found for {ticker}")
     
@@ -202,26 +204,25 @@ def load_daily_multi(
     start: datetime,
     end: datetime,
     use_cache: bool = True,
-    fill_nan: bool = True
 ) -> pd.DataFrame:
     parts = []
-    min_date = end.date()
-    max_date = start.date()
+    global_min_date = end.date()
+    global_max_date = start.date()
     
     print(f"\n📥 Loading data for {len(symbols)} symbols...")
     
     for ticker in symbols:
         try:
             print(f"\n   Loading {ticker}...")
-            df = load_daily_ticker(ticker, board, start, end, use_cache, fill_nan)
+            df = load_daily_ticker(ticker, board, start, end, use_cache)
             
             if df.empty:
                 print(f"   ⚠️  Empty data for {ticker}, skipping")
                 continue
             
             # Обновляем диапазон дат
-            min_date = min(min_date, df["date"].min())
-            max_date = max(max_date, df["date"].max())
+            global_min_date = min(global_min_date, df["date"].min())
+            global_max_date = max(global_max_date, df["date"].max())
             
             parts.append(df)
             print(f"   ✅ {ticker}: {df.shape[0]} rows")
@@ -243,8 +244,8 @@ def load_daily_multi(
     # Создаем полный календарь торговых дней
     print("   Creating full date range...")
     full_dates = pd.date_range(
-        start=min_date,
-        end=max_date,
+        start=global_min_date,
+        end=global_max_date,
         freq='B'
     ).date
     
@@ -337,6 +338,7 @@ def add_indicators_grouped(df: pd.DataFrame) -> pd.DataFrame:
                 "sma": "sma20",
                 "bollinger_upper": "boll_upper20",
                 "bollinger_lower": "boll_lower20",
+                "rsi": "rsi14"
             }, inplace=True)
             
             results.append(tmp)
@@ -350,10 +352,10 @@ def add_indicators_grouped(df: pd.DataFrame) -> pd.DataFrame:
     df_enriched = df_enriched.sort_values(['date', 'ticker']).reset_index(drop=True)
     
     # Заполняем NaN в индикаторах (для первых 20 дней)
-    indicator_cols = ['sma20', 'boll_upper20', 'boll_lower20', 'macd', 'macd_signal', 'rsi']
+    indicator_cols = ['sma20', 'boll_upper20', 'boll_lower20', 'macd', 'macd_signal', 'rsi14']
     for col in indicator_cols:
         if col in df_enriched.columns:
-            df_enriched[col] = df_enriched.groupby('ticker')[col].fillna(method='bfill').fillna(0)
+            df_enriched[col] = df_enriched.groupby('ticker')[col].fillna(method='ffill').fillna(0)
     
     return df_enriched
 
