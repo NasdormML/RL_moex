@@ -9,15 +9,14 @@ def add_bollinger_bands(
     """Bollinger Bands со стандартной популяции"""
     s = df.copy()
     
-    # Используем ddof=0 для популяционной стандартной ошибки
     s["sma"] = s["close"].rolling(window=window, min_periods=window).mean()
     s["std"] = s["close"].rolling(window=window, min_periods=window).std(ddof=0)
     
     s["bollinger_upper"] = s["sma"] + num_std * s["std"]
     s["bollinger_lower"] = s["sma"] - num_std * s["std"]
     
-    s["bollinger_upper"] = s["bollinger_upper"].fillna(s["close"])
-    s["bollinger_lower"] = s["bollinger_lower"].fillna(s["close"])
+    s["bollinger_upper"] = s["bollinger_upper"].fillna(method='ffill').fillna(s["close"])
+    s["bollinger_lower"] = s["bollinger_lower"].fillna(method='ffill').fillna(s["close"])
     
     return s
 
@@ -54,12 +53,11 @@ def calculate_rsi(
     up = delta.clip(lower=0.0)
     down = -delta.clip(upper=0.0)
     
-    # alpha = 1/window
     roll_up = up.ewm(alpha=1/window, min_periods=window).mean()
     roll_down = down.ewm(alpha=1/window, min_periods=window).mean()
     
     rs = roll_up / (roll_down + 1e-9)
     s["rsi"] = 100 - 100 / (1 + rs)
-    s["rsi"] = s["rsi"].fillna(50)  # Нейтральное значение
+    s["rsi"] = s["rsi"].fillna(50)
     
     return s
