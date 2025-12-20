@@ -3,7 +3,6 @@ import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import RobustScaler
 import warnings
 
 warnings.filterwarnings("ignore", module="sklearn")
@@ -60,6 +59,9 @@ class MultiTickerEnv(gym.Env):
         if not required_cols.issubset(df.columns):
             raise ValueError(f"❌ df must contain {required_cols}, found {df.columns.tolist()}")
         
+        if allow_short:
+            raise NotImplementedError("❌ Short selling is not properly implemented yet")
+        
         self.raw = df.copy()
         self.window = window
         self.init_balance = init_balance
@@ -81,7 +83,7 @@ class MultiTickerEnv(gym.Env):
         
         self.feature_cols = feature_cols or []
         
-        # Подготовка данных: пивоты, нормализация, проверка NaN
+        # Подготовка данных: пивоты, НЕ НОРМАЛИЗУЕМ ЦЕНЫ (УБРАНО)
         self._prepare_data()
         # Расчет размерности observation
         self._calculate_obs_dim()
@@ -128,7 +130,6 @@ class MultiTickerEnv(gym.Env):
                     # Интерполяция для остальных пропусков
                     valid_mask = ~np.isnan(col)
                     if not np.all(valid_mask):
-                        # Линейная интерполяция
                         indices = np.arange(len(col))
                         col[~valid_mask] = np.interp(
                             indices[~valid_mask],
@@ -143,26 +144,14 @@ class MultiTickerEnv(gym.Env):
             else:
                 raise ValueError("❌ NaN values found in price data! Set fill_nan_prices=True")
         
-        # Нормализация цен
-        self.price_scalers = {}
-        self.norm_prices = np.zeros_like(self.prices)
-        for i, sym in enumerate(self.symbols):
-            sc = RobustScaler()
-            valid_mask = ~np.isnan(self.prices[:, i])
-            
-            if valid_mask.sum() > 1:
-                self.norm_prices[valid_mask, i] = sc.fit_transform(
-                    self.prices[valid_mask, i].reshape(-1, 1)
-                ).flatten()
-            else:
-                self.norm_prices[:, i] = 0.0
-            
-            self.price_scalers[sym] = sc
+        # УБРАНА НОРМАЛИЗАЦИЯ ЦЕН (look-ahead bias)
+        self.norm_prices = self.prices.copy()  # Используем необработанные цены
         
         # === ОБРАБОТКА ФИЧЕЙ ===
         self.feature_data = {}
         self.feature_scalers = {}
         
+        # УБРАНА НОРМАЛИЗАЦИЯ ФИЧЕЙ (look-ahead bias)
         for f in self.feature_cols:
             if f not in self.raw.columns:
                 print(f"⚠️  Feature '{f}' not found in data, using zeros")
@@ -178,29 +167,8 @@ class MultiTickerEnv(gym.Env):
                 print(f"⚠️  NaN in feature '{f}', filling with 0")
                 pivot_f = np.nan_to_num(pivot_f, nan=0.0, posinf=0.0, neginf=0.0)
             
-            # Нормализация фичей
-            scaled = np.zeros_like(pivot_f)
-            scalers = []
-            
-            for i in range(pivot_f.shape[1]):
-                sc = RobustScaler()
-                valid_mask = ~np.isnan(pivot_f[:, i])
-                
-                if valid_mask.sum() > 1:
-                    try:
-                        scaled[valid_mask, i] = sc.fit_transform(
-                            pivot_f[valid_mask, i].reshape(-1, 1)
-                        ).flatten()
-                    except Exception as e:
-                        print(f"⚠️  Scaling failed for {f}[{i}], using raw: {e}")
-                        scaled[:, i] = pivot_f[:, i]
-                else:
-                    scaled[:, i] = 0.0
-                
-                scalers.append(sc)
-            
-            self.feature_data[f] = scaled
-            self.feature_scalers[f] = scalers
+            # УБРАНА НОРМАЛИЗАЦИЯ
+            self.feature_data[f] = pivot_f
             
             # Финальная проверка на NaN
             if np.any(np.isnan(self.feature_data[f])):
@@ -216,8 +184,8 @@ class MultiTickerEnv(gym.Env):
         )
     
     def _setup_spaces(self):
-        # Action space: [-1, 1] для шорта, [0, 1] для лонга
-        low = -1.0 if self.allow_short else 0.0
+        # Action space: [0, 1] для лонга (шорт НЕ ПОДДЕРЖИВАЕТСЯ)
+        low = 0.0
         self.action_space = spaces.Box(
             low=low, high=1.0, shape=(self.n_sym,), dtype=np.float32
         )
@@ -300,13 +268,13 @@ class MultiTickerEnv(gym.Env):
         action = np.clip(action, self.action_space.low, self.action_space.high)
         
         # Ограничение максимального веса на актив
-        action = np.sign(action) * np.minimum(np.abs(action), self.max_weight_per_asset)
+        action = np.minimum(action, self.max_weight_per_asset)
         
         # Нормализация суммы весов (если включено)
         if self.normalize_action:
-            total_abs = np.sum(np.abs(action))
-            if total_abs > 1.0 + 1e-9:
-                action = action / total_abs
+            total = np.sum(action)
+            if total > 1.0 + 1e-9:
+                action = action / total
         
         return action
     
@@ -339,7 +307,7 @@ class MultiTickerEnv(gym.Env):
             np.abs(trade_shares), max_trade_shares
         )
         
-        # 7. Фильтр минимального размера сделки
+        # Фильтр минимального размера сделки
         trade_values = np.abs(trade_shares * prices)
         small_trade_mask = trade_values < self.min_trade_value
         trade_shares[small_trade_mask] = 0.0
@@ -419,7 +387,7 @@ class MultiTickerEnv(gym.Env):
                 spent = (scaled_qty * prices[buy_mask] * (1 + self.comm + self.slip)).sum()
                 self.cash -= spent
         
-        # Корректировка: запрещаем отрицательные позиции
+        # Запрещаем отрицательные позиции (ЕСЛИ ШОРТ НЕ РАЗРЕШЕН)
         if not self.allow_short:
             self.shares = np.maximum(self.shares, 0.0)
         
